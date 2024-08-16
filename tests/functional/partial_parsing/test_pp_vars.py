@@ -357,7 +357,13 @@ class TestProfileSecretEnvVars:
             "model_one.sql": model_one_sql,
         }
 
-    @property
+    @pytest.fixture(scope="class")
+    def environment(self):
+        custom_env = os.environ.copy()
+        custom_env[SECRET_ENV_PREFIX + "_SEARCH_PATH"] = "public"
+        return custom_env
+
+    @pytest.fixture(scope="class")
     def dbt_profile_target(self):
         # Need to set these here because the base integration test class
         # calls 'load_config' before the tests are run.
@@ -366,34 +372,30 @@ class TestProfileSecretEnvVars:
 
         # user is secret and password is not. postgres on macos doesn't care if the password
         # changes so we have to change the user. related: https://github.com/dbt-labs/dbt-core/pull/4250
-        os.environ[SECRET_ENV_PREFIX + "_USER"] = "root"
-        os.environ["ENV_VAR_PASS"] = "password"
         return {
             "type": "postgres",
-            "threads": 4,
             "host": "localhost",
             "port": 5432,
-            "user": "{{ env_var('DBT_ENV_SECRET_USER') }}",
-            "pass": "{{ env_var('ENV_VAR_PASS') }}",
+            "user": "root",
+            "pass": "password",
             "dbname": "dbt",
+            "search_path": "{{ env_var('" + SECRET_ENV_PREFIX + "_SEARCH_PATH') }}",
         }
 
     def test_profile_secret_env_vars(self, project):
 
         # Initial run
-        os.environ[SECRET_ENV_PREFIX + "_USER"] = "root"
-        os.environ["ENV_VAR_PASS"] = "password"
+        os.environ[SECRET_ENV_PREFIX + "_SEARCH_PATH"] = "public"
 
         results = run_dbt(["run"])
         manifest = get_manifest(project.project_root)
         env_vars_checksum = manifest.state_check.profile_env_vars_hash.checksum
 
         # Change a secret var, it shouldn't register because we shouldn't save secrets.
-        os.environ[SECRET_ENV_PREFIX + "_USER"] = "fake_user"
+        os.environ[SECRET_ENV_PREFIX + "_SEARCH_PATH"] = "fake_path"
         # we just want to see if the manifest has included
         # the secret in the hash of environment variables.
         (results, log_output) = run_dbt_and_capture(["run"], expect_pass=True)
-        # I020 is the event code for "env vars used in profiles.yml have changed"
-        assert not ("I020" in log_output)
+        assert not ("Unable to do partial parsing because profile has changed" in log_output)
         manifest = get_manifest(project.project_root)
         assert env_vars_checksum == manifest.state_check.profile_env_vars_hash.checksum
