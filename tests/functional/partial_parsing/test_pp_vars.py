@@ -390,6 +390,7 @@ class TestProfileSecretEnvVars:
         results = run_dbt(["run"])
         manifest = get_manifest(project.project_root)
         env_vars_checksum = manifest.state_check.profile_env_vars_hash.checksum
+        profile_checksum = manifest.state_check.profile_hash.checksum
 
         # Change a secret var, it shouldn't register because we shouldn't save secrets.
         os.environ[SECRET_ENV_PREFIX + "_SEARCH_PATH"] = "fake_path"
@@ -397,5 +398,7 @@ class TestProfileSecretEnvVars:
         # the secret in the hash of environment variables.
         (results, log_output) = run_dbt_and_capture(["run"], expect_pass=True)
         assert not ("Unable to do partial parsing because profile has changed" in log_output)
+
         manifest = get_manifest(project.project_root)
         assert env_vars_checksum == manifest.state_check.profile_env_vars_hash.checksum
+        assert profile_checksum == manifest.state_check.profile_hash.checksum
